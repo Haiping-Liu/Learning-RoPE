@@ -2,9 +2,13 @@ import lightning as L
 import torch
 from torch.optim import AdamW
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from torch.optim.lr_scheduler import CosineAnnealingLR
+
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from models.vit_custom import create_axial_vit_tiny
 from datasets.datasets import create_dataloader
 
@@ -60,27 +64,28 @@ class ViTLightningModule(L.LightningModule):
             }
         }
 
-def train():
+def train(data_path: str):
     # data
     train_loader = create_dataloader(
-        root='./data',
+        data_path=data_path,
         train=True,
-        batch_size=128
+        batch_size=1
     )
     val_loader = create_dataloader(
-        root='./data',
+        data_path=data_path,
         train=False,
-        batch_size=128
+        batch_size=1
     )
     
     # model
     model = ViTLightningModule()
     
-    wandb_logger = WandbLogger(
-    project="vit-training",
-    name="axial-vit-tiny",
-    log_model=True
-    )
+    # 注释掉 WandbLogger
+    # wandb_logger = WandbLogger(
+    #     project="vit-training",
+    #     name="axial-vit-tiny",
+    #     log_model=True
+    # )
 
     early_stop_callback = EarlyStopping(
         monitor='val_acc',      # the metric to monitor
@@ -106,9 +111,9 @@ def train():
         callbacks=[
             early_stop_callback,
             checkpoint_callback,
-            L.callbacks.LearningRateMonitor()
+            LearningRateMonitor(logging_interval='step')
         ],
-        logger=wandb_logger
+        # logger=wandb_logger  # 注释掉 logger 参数
     )
     
     # start training
@@ -121,4 +126,6 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    train(data_path='../tiny-imagenet-200')
+
+    
