@@ -12,7 +12,6 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
             num_classes: number of classes
             rope_type: RoPE type, optional 'standard' or 'learner'
     """
-
     model = VisionTransformer(
         img_size=64,
         patch_size=4,
@@ -57,21 +56,17 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
     
     # modify the forward method
     original_forward = model.forward
-    def learner_forward(self, x):
+
+    def new_forward(self, x):
         x = self.patch_embed(x)
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)
         x = torch.cat((cls_token, x), dim=1)
-        
-        all_Qs = []  
+         
         for blk in self.blocks:
-            if isinstance(blk.attn, LearnerRoPEAttention):
-                x, Q = blk.attn(x, self.freqs_cis)
-                all_Qs.append(Q)  
-            elif isinstance(blk.attn, RoPEAttention):
+            if isinstance(blk.attn, (LearnerRoPEAttention, RoPEAttention)):
                 x = blk.attn(x, self.freqs_cis)
             else:
                 x = blk.attn(x)
-                
             y = blk.mlp(blk.norm2(x))
 
             if hasattr(blk, 'drop_path'):
@@ -80,9 +75,7 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
                 x = x + y
 
         x = self.norm(x)
-        # all_Qs dim: [num_layers, num_heads, head_dim, head_dim]
-        all_Qs = torch.stack(all_Qs) if all_Qs else None
-        return self.head(x[:, 0]), all_Qs
+        return self.head(x[:, 0])
 
     model.forward = type(model.forward)(new_forward, model)
     return model

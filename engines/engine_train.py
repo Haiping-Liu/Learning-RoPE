@@ -31,9 +31,10 @@ class ViTLightningModule(L.LightningModule):
     def _shared_step(self, batch):
         x, y = batch
         logits = self(x)
-        loss = self.criterion(logits, y)
+        classification_loss = self.criterion(logits, y)
+
         acc = (logits.argmax(dim=-1) == y).float().mean()
-        return loss, acc
+        return classification_loss, acc, all_Qs
     
     def training_step(self, batch, batch_idx):
         loss, acc = self._shared_step(batch)

@@ -91,4 +91,4 @@ class LearnerRoPEAttention(Attention):
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj_drop(self.proj(x))
-        return x, Q
+        return x
