@@ -1,0 +1,20 @@
+# 忽略 Python 编译生成的文件
+__pycache__/
+*.pyc
+
+# 忽略模型检查点和日志
+*.ckpt
+*.yaml
+logs/
+wandb/
+
+# 忽略数据集
+tiny-imagenet-200/
+
+# 忽略虚拟环境
+venv/
+
+# 忽略 IDE 配置文件
+.idea/
+
+.tiny-imagenet-200/

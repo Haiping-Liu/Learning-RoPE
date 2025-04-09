@@ -1,5 +1,6 @@
 import torch
-from timm.model.vision_transformer import Attention
+from timm.models.vision_transformer import Attention
+from typing import Tuple
 
 def init_xy(end_x: int, end_y: int) -> torch.Tensor:
     """
@@ -17,7 +18,7 @@ def init_xy(end_x: int, end_y: int) -> torch.Tensor:
     t_y = torch.div(t, end_x, rounding_mode='floor').float()
     return t_x, t_y
 
-def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 100.0)
+def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 100.0):
     """
         purpose:
             Compute the x and y frequency. It's the block style, causing the finaly attention ike [x1,x2,...,xN,y1,y2,...,yN]
@@ -31,16 +32,16 @@ def compute_axial_cis(dim: int, end_x: int, end_y: int, theta: float = 100.0)
 
     t_x, t_y = init_xy(end_x, end_y)
     freq_x = torch.outer(t_x, freqs_x)
-    freq_y = torch.outer(t_x, freqs_x)
+    freq_y = torch.outer(t_y, freqs_y)
     freq_cis_x = torch.polar(torch.ones_like(freq_x), freq_x)
-    freq_cis_y = torch.polar(torch.ones_like(freq_y), freq_y)
+    freq_cis_y = torch.polar(torch.ones_like(freq_y), freq_y)                                   
     return torch.cat([freq_cis_x, freq_cis_y], dim=-1)
 
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     """
         args:
             freqs_cis: [length, head_dim / 2] or [num_heads, length, head_dim / 2]
-            x: [batch_size, num_heads, length, head_dim / 2, 2]
+            x: [batch_size, num_heads, length, head_dim / 2]
     """
     ndim = x.ndim
     assert 0 <= 1 < ndim
@@ -63,7 +64,6 @@ def apply_rotary_emb(
             xq/xk: [batch_size, num_heads, length, head_dim]
             freqs_cis: [length, head_dim / 2] or [num_heads, length, head_dim / 2]
     """
-
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2)) # [batch_size, num_heads, length, head_dim / 2, 2]
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
     freqs_cis = reshape_for_broadcast(freqs_cis, xq_) # [1, num_heads, length, head_dim/2, 2]
@@ -74,7 +74,7 @@ def apply_rotary_emb(
 class RoPEAttention(Attention):
     def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
         B, N, C = x.shape
-        "(B, N, 3, num_heads, head_dim) -> (3, B, num_heads, N, head_dim"
+        "(B, N, 3, num_heads, head_dim) -> (3, B, num_heads, N, head_dim)"
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4) 
         "(B, num_heads, N, head_dim)"
         q, k, v = qkv[0], qkv[1], qkv[2]
