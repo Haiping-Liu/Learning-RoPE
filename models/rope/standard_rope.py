@@ -1,6 +1,8 @@
 import torch
 from timm.models.vision_transformer import Attention
 from typing import Tuple
+from models.rope.masa_q_rope import CayleyLearner, GivensRotationLayer, HouseholderLayer
+
 
 def init_xy(end_x: int, end_y: int) -> torch.Tensor:
     """
@@ -64,12 +66,12 @@ def apply_rotary_emb(
             xq/xk: [batch_size, num_heads, length, head_dim]
             freqs_cis: [length, head_dim / 2] or [num_heads, length, head_dim / 2]
     """
-    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2)) # [batch_size, num_heads, length, head_dim / 2, 2]
+    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2)) # [batch_size, num_heads, length, head_dim/2]
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
-    freqs_cis = reshape_for_broadcast(freqs_cis, xq_) # [1, num_heads, length, head_dim/2, 2]
+    freqs_cis = reshape_for_broadcast(freqs_cis, xq_) # [1, num_heads, length, head_dim/2]
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3) # merge the dimesions from the third dimension to the last dimension
-    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3) # [batch_size, num_heads, length, head_dim]
-    return xq_out.type_as(xq).to(xq.device), xk_out.type_as(xk).to(xk.device)
+    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3) # [batch_size, num_heads, length, head_dim/2, 2] -> [batch_size, num_heads, length, head_dim]
+    return xq_out.type_as(xq).to(xq.device), xk_out.type_as(xk).to(xk.device) # [batch_size, num_heads, length, head_dim]
 
 class RoPEAttention(Attention):
     def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
@@ -81,6 +83,7 @@ class RoPEAttention(Attention):
         
         # drop cls when apply rotary embedding
         q[:, :, 1:], k[:, :, 1:] = apply_rotary_emb(q[:, :, 1:], k[:, :, 1:], freqs_cis=freqs_cis)
+
         attn = (q * self.scale) @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
