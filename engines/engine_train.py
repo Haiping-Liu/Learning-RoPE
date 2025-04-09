@@ -4,25 +4,26 @@ from torch.optim import AdamW
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from torch.optim.lr_scheduler import CosineAnnealingLR
-
+import argparse
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from models.vit_custom import create_axial_vit_tiny
+from models.vit_custom import create_vit_tiny
 from datasets.datasets import create_dataloader
 
 class ViTLightningModule(L.LightningModule):
     def __init__(
         self,
+        rope_type: str = 'standard',
         num_classes: int = 200,
-        lr: float = 1e-3,
-        weight_decay: float = 0.05,
+        lr: float = 1e-4,
+        weight_decay: float = 0.01,
         max_epochs: int = 100
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.model = create_axial_vit_tiny(num_classes=num_classes)
+        self.model = create_vit_tiny(num_classes=num_classes, rope_type=rope_type)
         self.criterion = torch.nn.CrossEntropyLoss()
         
     def forward(self, x):
@@ -32,9 +33,8 @@ class ViTLightningModule(L.LightningModule):
         x, y = batch
         logits = self(x)
         classification_loss = self.criterion(logits, y)
-
         acc = (logits.argmax(dim=-1) == y).float().mean()
-        return classification_loss, acc, all_Qs
+        return classification_loss, acc
     
     def training_step(self, batch, batch_idx):
         loss, acc = self._shared_step(batch)
@@ -65,28 +65,27 @@ class ViTLightningModule(L.LightningModule):
             }
         }
 
-def train(data_path: str):
+def train(data_path: str, rope_type: str = 'standard'):
     # data
     train_loader = create_dataloader(
         data_path=data_path,
         train=True,
-        batch_size=1
+        batch_size=32
     )
     val_loader = create_dataloader(
         data_path=data_path,
         train=False,
-        batch_size=1
+        batch_size=32
     )
     
     # model
-    model = ViTLightningModule()
+    model = ViTLightningModule(rope_type=rope_type)
     
-    # 注释掉 WandbLogger
-    # wandb_logger = WandbLogger(
-    #     project="vit-training",
-    #     name="axial-vit-tiny",
-    #     log_model=True
-    # )
+    wandb_logger = WandbLogger(
+        project="vit-training",
+        name=f"{rope_type}-vit-tiny",
+        log_model=True
+    )
 
     early_stop_callback = EarlyStopping(
         monitor='val_acc',      # the metric to monitor
@@ -114,7 +113,7 @@ def train(data_path: str):
             checkpoint_callback,
             LearningRateMonitor(logging_interval='step')
         ],
-        # logger=wandb_logger  # 注释掉 logger 参数
+        logger=wandb_logger  
     )
     
     # start training
@@ -127,6 +126,18 @@ def train(data_path: str):
 
 
 if __name__ == "__main__":
-    train(data_path='../tiny-imagenet-200')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", "-d", type=str, default='/root/autodl-tmp/tiny-imagenet-200')
+    parser.add_argument("--rope_type", 
+                        "-r", 
+                        type=str, 
+                        default='standard',
+                        choices=['standard','cayley','givens','householder'],
+                        help='RoPE type')
+    
+    args = parser.parse_args()
+
+    L.seed_everything(42, workers=True)
+    train(data_path=args.data_path, rope_type=args.rope_type)
 
     

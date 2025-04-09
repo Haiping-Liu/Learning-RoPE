@@ -10,13 +10,13 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
             create a ViT tiny model, support multiple RoPE types
         args:
             num_classes: number of classes
-            rope_type: RoPE type, optional 'standard' or 'learner'
+            rope_type: RoPE type, optional: 'standard','cayley','givens','householder'
     """
     model = VisionTransformer(
         img_size=64,
         patch_size=4,
         embed_dim=192,
-        depth=1,
+        depth=12,
         num_heads=3,
         mlp_ratio=4,
         qkv_bias=True, 
@@ -40,16 +40,15 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
                 attn_drop=0.,
                 proj_drop=0.
             )
-        elif rope_type == 'learner':
+        else:
             block.attn = LearnerRoPEAttention(
+                learner_type=rope_type,
                 dim=192,
                 num_heads=3,
                 qkv_bias=True,
                 attn_drop=0.,
                 proj_drop=0.
             )
-        else:
-            raise ValueError(f"Unsupported rope_type: {rope_type}")
         
     # save the position encoding to the model
     model.register_buffer('freqs_cis', freqs_cis, persistent=False)

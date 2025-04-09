@@ -1,7 +1,6 @@
 import torch
 from timm.models.vision_transformer import Attention
 from typing import Tuple
-from models.rope.masa_q_rope import CayleyLearner, GivensRotationLayer, HouseholderLayer
 
 
 def init_xy(end_x: int, end_y: int) -> torch.Tensor:

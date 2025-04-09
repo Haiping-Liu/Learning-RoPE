@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from models.rope.standard_rope import apply_rotary_emb
+from .standard_rope import apply_rotary_emb
+from timm.models.vision_transformer import Attention
 
 class CayleyLearnerPerHead(nn.Module):
     def __init__(self, num_heads: int, head_dim: int):
@@ -15,16 +16,21 @@ class CayleyLearnerPerHead(nn.Module):
 
 
 class GivensRotationPerHead(nn.Module):
-    def __init__(self, num_heads: int, dim: int, num_rotations: int = None):
+    def __init__(self, num_heads: int, dim: int, num_rotations: int = 16):
         super().__init__()
         self.num_heads = num_heads
         self.dim = dim
+
+        # 默认选择所有可能的 Givens 旋转
         if num_rotations is None:
             num_rotations = dim * (dim - 1) // 2
         self.rotation_indices = self._create_rotation_indices(dim, num_rotations)
+
+        # 初始化旋转角度 theta（每个头独立一组）
         self.thetas = nn.Parameter(torch.randn(num_heads, len(self.rotation_indices)) * 0.01)
 
     def _create_rotation_indices(self, n, num_rotations):
+        """生成 Givens 旋转的坐标对 (i, j)，确保 i < j"""
         indices = []
         for i in range(n):
             for j in range(i + 1, n):
@@ -33,20 +39,31 @@ class GivensRotationPerHead(nn.Module):
                     return indices
         return indices
 
-    def forward(self):
-        device = self.thetas.device
-        Q = torch.eye(self.dim, device=device).expand(self.num_heads, self.dim, self.dim).clone()  # (H, D, D)
-        for rot_idx, (i, j) in enumerate(self.rotation_indices):
-            theta = self.thetas[:, rot_idx]  # (H,)
+    def apply_batch_givens(self, Q, thetas, indices):
+        """批量应用 Givens 旋转到 Q，保持计算图安全"""
+        Q_new = Q.clone()  # 避免 in-place 写操作破坏 autograd
+
+        for k, (i, j) in enumerate(indices):
+            theta = thetas[:, k]  # (H,)
             c = torch.cos(theta).unsqueeze(-1)  # (H, 1)
             s = torch.sin(theta).unsqueeze(-1)  # (H, 1)
 
-            Qi = Q[:, i, :].clone()
-            Qj = Q[:, j, :].clone()
-            Q[:, i, :] = c * Qi + s * Qj
-            Q[:, j, :] = -s * Qi + c * Qj
+            # Clone 各行避免 inplace 导致反向出错
+            Qi = Q_new[:, i, :].clone()
+            Qj = Q_new[:, j, :].clone()
 
-        return Q  # shape: (H, D, D)
+            Q_new[:, i, :] = c * Qi + s * Qj
+            Q_new[:, j, :] = -s * Qi + c * Qj
+
+        return Q_new
+
+    def forward(self):
+        """生成每个 head 的正交旋转矩阵 Q，shape: (H, D, D)"""
+        device = self.thetas.device
+        Q_init = torch.eye(self.dim, device=device).expand(self.num_heads, self.dim, self.dim).clone()
+        return self.apply_batch_givens(Q_init, self.thetas, self.rotation_indices)
+
+
 
 
 class HouseholderPerHead(nn.Module):
@@ -70,9 +87,14 @@ class HouseholderPerHead(nn.Module):
 
 
 class LearnerRoPEAttention(Attention):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, learner_type: str = 'givens', *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.Q_learner = CayleyLearnerPerHead(self.num_heads, self.head_dim)
+        learner_map = {
+            'cayley': CayleyLearnerPerHead,
+            'givens': GivensRotationPerHead,
+            'householder': HouseholderPerHead
+        }
+        self.Q_learner = learner_map[learner_type](self.num_heads, self.head_dim)
 
     def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
         B, N, C = x.shape
