@@ -73,16 +73,30 @@ def apply_rotary_emb(
     return xq_out.type_as(xq).to(xq.device), xk_out.type_as(xk).to(xk.device) # [batch_size, num_heads, length, head_dim]
 
 class RoPEAttention(Attention):
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
-        B, N, C = x.shape
-        "(B, N, 3, num_heads, head_dim) -> (3, B, num_heads, N, head_dim)"
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4) 
-        "(B, num_heads, N, head_dim)"
-        q, k, v = qkv[0], qkv[1], qkv[2]
-        
-        # drop cls when apply rotary embedding
-        q[:, :, 1:], k[:, :, 1:] = apply_rotary_emb(q[:, :, 1:], k[:, :, 1:], freqs_cis=freqs_cis)
+    def __init__(self, dim, num_heads, qkv_bias, attn_drop, proj_drop, freqs_cis):
+        """
+            跟 timm 的 Attention 一样，只是多了一个 freqs_cis
+        """
+        super().__init__(dim, num_heads, qkv_bias, attn_drop, proj_drop)
+        # 将 RoPE 参数存成模块属性，这样 forward 里可直接拿到
+        self.freqs_cis = freqs_cis
 
+    def forward(self, x: torch.Tensor):
+        B, N, C = x.shape
+        # [3, B, num_heads, N, head_dim]
+        qkv = self.qkv(x).reshape(
+            B, N, 3, self.num_heads, C // self.num_heads
+        ).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        # 对 [1:] token 应用旋转位置编码，跳过 CLS
+        q[:, :, 1:], k[:, :, 1:] = apply_rotary_emb(
+            q[:, :, 1:], 
+            k[:, :, 1:], 
+            freqs_cis=self.freqs_cis
+        )
+
+        # 后面跟 timm 源码一样
         attn = (q * self.scale) @ k.transpose(-2, -1)
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
@@ -90,5 +104,4 @@ class RoPEAttention(Attention):
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        
         return x

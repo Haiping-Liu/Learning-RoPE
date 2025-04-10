@@ -4,7 +4,7 @@ from timm.models.vision_transformer import VisionTransformer
 from models.rope.standard_rope import RoPEAttention, compute_axial_cis
 from models.rope.masa_q_rope import LearnerRoPEAttention
 
-def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
+def create_vit_tiny_old(num_classes: int = 200, rope_type: str = 'standard'):
     """
         purpose:
             create a ViT tiny model, support multiple RoPE types
@@ -62,19 +62,77 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
         x = torch.cat((cls_token, x), dim=1)
          
         for blk in self.blocks:
+            x_norm = blk.norm1(x)
             if isinstance(blk.attn, (LearnerRoPEAttention, RoPEAttention)):
-                x = blk.attn(x, self.freqs_cis)
+                attn_out = blk.attn(x_norm, self.freqs_cis)
             else:
-                x = blk.attn(x)
-            y = blk.mlp(blk.norm2(x))
-
+                attn_out = blk.attn(x_norm)
+            
             if hasattr(blk, 'drop_path'):
-                x = x + blk.drop_path(y)
+                x = x + blk.drop_path(attn_out)
             else:
-                x = x + y
+                x = x + attn_out
+
+            x_norm2 = blk.norm2(x)
+            mlp_out = blk.mlp(x_norm2)
+            
+            if hasattr(blk, 'drop_path'):
+                x = x + blk.drop_path(mlp_out)
+            else:
+                x = x + mlp_out
 
         x = self.norm(x)
         return self.head(x[:, 0])
 
     model.forward = type(model.forward)(new_forward, model)
     return model
+
+def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
+    model = VisionTransformer(
+        img_size=64,
+        patch_size=4,
+        embed_dim=192,
+        depth=12,
+        num_heads=3,
+        mlp_ratio=4,
+        qkv_bias=True,
+        num_classes=num_classes
+    )
+
+    with torch.no_grad():
+        model.pos_embed.zero_()
+
+    model.pos_embed.requires_grad = False
+
+
+    num_patches = (64 // 4) ** 2  # img_size // patch_size
+    freqs_cis = compute_axial_cis(
+        dim=192 // 3,
+        end_x=16,
+        end_y=16
+    )
+    
+    # replace all attention layers
+    for block in model.blocks:
+        if rope_type == 'standard':
+            block.attn = RoPEAttention(
+                dim=192,
+                num_heads=3,
+                qkv_bias=True,
+                attn_drop=0.,
+                proj_drop=0.,
+                freqs_cis=freqs_cis
+            )
+        else:
+            block.attn = LearnerRoPEAttention(
+                learner_type=rope_type,
+                dim=192,
+                num_heads=3,
+                qkv_bias=True,
+                attn_drop=0.,
+                proj_drop=0.,
+                freqs_cis=freqs_cis
+            )
+    
+    return model
+    
