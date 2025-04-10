@@ -104,7 +104,6 @@ def create_vit_tiny(num_classes: int = 200, rope_type: str = 'standard'):
 
     model.pos_embed.requires_grad = False
 
-
     num_patches = (64 // 4) ** 2  # img_size // patch_size
     freqs_cis = compute_axial_cis(
         dim=192 // 3,

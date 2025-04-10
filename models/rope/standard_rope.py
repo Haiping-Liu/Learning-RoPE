@@ -79,9 +79,10 @@ class RoPEAttention(Attention):
         """
         super().__init__(dim, num_heads, qkv_bias, attn_drop, proj_drop)
         # 将 RoPE 参数存成模块属性，这样 forward 里可直接拿到
-        self.freqs_cis = freqs_cis
 
     def forward(self, x: torch.Tensor):
+        self.freqs_cis = self.freqs_cis.to(x.device)
+
         B, N, C = x.shape
         # [3, B, num_heads, N, head_dim]
         qkv = self.qkv(x).reshape(
