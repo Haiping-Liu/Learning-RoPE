@@ -31,8 +31,8 @@ class TrainDataset(datasets.ImageFolder):
 class ValDataset(Dataset):
     def __init__(self, data_path: str):
         # 1. 路径设置
-        annotations_file = os.path.join(data_path, 'val', 'val_annotations.txt')
-        self.images_dir = os.path.join(data_path, 'val', 'images')
+        annotations_file = os.path.join(data_path, 'val_annotations.txt')
+        self.images_dir = os.path.join(data_path, 'images')
 
         # 2. 定义图像变换
         self.transform = transforms.Compose([
@@ -76,7 +76,7 @@ def create_dataloader(data_path: str,
                      train: bool = True, 
                      batch_size: int = 128,
                      num_workers: int = 4):
-    dataset = TrainDataset(data_path) if train else ValDataset(data_path)
+    dataset = TrainDataset(os.path.join(data_path, 'train')) if train else ValDataset(os.path.join(data_path, 'val'))
     
     return DataLoader(
         dataset,

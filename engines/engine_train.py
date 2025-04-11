@@ -1,6 +1,6 @@
 import lightning as L
 import torch
-from torch.optim import AdamW
+from torch.optim import AdamW, SGD
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -18,7 +18,7 @@ class ViTLightningModule(L.LightningModule):
         rope_type: str = 'standard',
         num_classes: int = 200,
         lr: float = 1e-4,
-        weight_decay: float = 0.01,
+        weight_decay: float = 0.1,
         max_epochs: int = 100
     ):
         super().__init__()
@@ -70,12 +70,12 @@ def train(data_path: str, rope_type: str = 'standard'):
     train_loader = create_dataloader(
         data_path=data_path,
         train=True,
-        batch_size=32
+        batch_size=128
     )
     val_loader = create_dataloader(
         data_path=data_path,
         train=False,
-        batch_size=32
+        batch_size=128
     )
     
     # model
@@ -89,7 +89,7 @@ def train(data_path: str, rope_type: str = 'standard'):
 
     early_stop_callback = EarlyStopping(
         monitor='val_acc',      # the metric to monitor
-        patience=5,             # if 5 epochs no improvement, stop
+        patience=15,             # if 15 epochs no improvement, stop
         mode='max',             # higher is better
         verbose=True
     )

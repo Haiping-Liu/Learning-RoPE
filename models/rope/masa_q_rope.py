@@ -11,7 +11,7 @@ class CayleyLearnerPerHead(nn.Module):
     def forward(self):
         A = self.W - self.W.transpose(-1, -2)  # Ensure skew-symmetry per head
         I = torch.eye(A.size(-1), device=A.device).expand_as(A)
-        Q = torch.linalg.solve(I + A, I - A)  # Cayley transform
+        Q = torch.linalg.solve((I + A).T, (I - A).T).T  # Cayley transform
         return Q  # shape: (num_heads, head_dim, head_dim)
 
 
@@ -63,9 +63,6 @@ class GivensRotationPerHead(nn.Module):
         Q_init = torch.eye(self.dim, device=device).expand(self.num_heads, self.dim, self.dim).clone()
         return self.apply_batch_givens(Q_init, self.thetas, self.rotation_indices)
 
-
-
-
 class HouseholderPerHead(nn.Module):
     def __init__(self, num_heads: int, dim: int, num_reflections: int = 4):
         super().__init__()
@@ -87,7 +84,7 @@ class HouseholderPerHead(nn.Module):
 
 
 class LearnerRoPEAttention(Attention):
-    def __init__(self, learner_type: str = 'givens', *args, **kwargs):
+    def __init__(self, freqs_cis: torch.Tensor, learner_type: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
         learner_map = {
             'cayley': CayleyLearnerPerHead,
@@ -95,13 +92,16 @@ class LearnerRoPEAttention(Attention):
             'householder': HouseholderPerHead
         }
         self.Q_learner = learner_map[learner_type](self.num_heads, self.head_dim)
+        self.freqs_cis = freqs_cis
 
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor):
+    def forward(self, x: torch.Tensor):
+        self.freqs_cis = self.freqs_cis.to(x.device)
+
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        q[:, :, 1:], k[:, :, 1:] = apply_rotary_emb(q[:, :, 1:], k[:, :, 1:], freqs_cis=freqs_cis)
+        q[:, :, 1:], k[:, :, 1:] = apply_rotary_emb(q[:, :, 1:], k[:, :, 1:], freqs_cis=self.freqs_cis)
 
         Q = self.Q_learner()  # shape: (num_heads, head_dim, head_dim)
 
